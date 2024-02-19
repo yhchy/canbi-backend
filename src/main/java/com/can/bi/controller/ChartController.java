@@ -9,18 +9,20 @@ import com.can.bi.common.ResultUtils;
 import com.can.bi.constant.UserConstant;
 import com.can.bi.exception.BusinessException;
 import com.can.bi.exception.ThrowUtils;
-import com.can.bi.model.dto.chart.ChartAddRequest;
-import com.can.bi.model.dto.chart.ChartEditRequest;
-import com.can.bi.model.dto.chart.ChartQueryRequest;
-import com.can.bi.model.dto.chart.ChartUpdateRequest;
+import com.can.bi.manager.AiManager;
+import com.can.bi.model.dto.chart.*;
 import com.can.bi.model.entity.Chart;
 import com.can.bi.model.entity.User;
+import com.can.bi.model.vo.BiResponse;
 import com.can.bi.service.ChartService;
 import com.can.bi.service.UserService;
+import com.can.bi.utils.ExcelUtils;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
@@ -42,8 +44,60 @@ public class ChartController {
     @Resource
     private UserService userService;
 
+    @Resource
+    private AiManager aiManager;
+
+    public static final Long MODEL_ID = 1709156902984093697L;
+
     private final static Gson GSON = new Gson();
 
+
+    /**
+     * 智能分析
+     *
+     * @param multipartFile
+     * @param genChartByAiRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/gen")
+    public BaseResponse<BiResponse> genChartByAi(@RequestPart("file") MultipartFile multipartFile,
+                                                 GenChartByAiRequest genChartByAiRequest, HttpServletRequest request) {
+        String goal = genChartByAiRequest.getGoal();
+        String name = genChartByAiRequest.getName();
+        String chartType = genChartByAiRequest.getChartType();
+        // 校验
+        ThrowUtils.throwIf(StringUtils.isBlank(goal), ErrorCode.PARAMS_ERROR, "目标为空");
+        ThrowUtils.throwIf(StringUtils.isNotBlank(name) && name.length() > 100, ErrorCode.PARAMS_ERROR, "名称过长");
+        User loginUser = userService.getLoginUser(request);
+        // 用户输入
+        StringBuilder userInput = new StringBuilder();
+        String userGoal = goal;
+        if (StringUtils.isNotBlank(chartType)) {
+            userGoal += "请使用" + chartType;
+        }
+        userInput.append("Analysis goal:").append(userGoal).append("\n");
+        String rowData = ExcelUtils.excelToCsv(multipartFile);
+        userInput.append("Raw data: ：").append(rowData).append("\n");
+        String result = aiManager.doChat(MODEL_ID, userInput.toString());
+        String[] split = result.split("【【【【【");
+        ThrowUtils.throwIf(split.length < 3, ErrorCode.SYSTEM_ERROR, "AI 生成错误");
+        String genChart = split[1].trim();
+        String genResult = split[2].trim();
+        Chart chart = new Chart();
+        chart.setGoal(goal);
+        chart.setName(name);
+        chart.setChartData(rowData);
+        chart.setChartType(chartType);
+        chart.setGenChart(genChart);
+        chart.setGenResult(genResult);
+        chart.setStatus("succeed");
+//        chart.setExecMessage();
+        chart.setUserId(loginUser.getId());
+        boolean saveFlag = chartService.save(chart);
+        ThrowUtils.throwIf(!saveFlag, ErrorCode.SYSTEM_ERROR, "图表保存失败");
+        return ResultUtils.success(new BiResponse(genChart, genResult));
+    }
     // region 增删改查
 
     /**
@@ -142,7 +196,7 @@ public class ChartController {
      */
     @PostMapping("/list/page")
     public BaseResponse<Page<Chart>> listChartByPage(@RequestBody ChartQueryRequest chartQueryRequest,
-            HttpServletRequest request) {
+                                                     HttpServletRequest request) {
         long current = chartQueryRequest.getCurrent();
         long size = chartQueryRequest.getPageSize();
         // 限制爬虫
@@ -161,7 +215,7 @@ public class ChartController {
      */
     @PostMapping("/my/list/page")
     public BaseResponse<Page<Chart>> listMyChartByPage(@RequestBody ChartQueryRequest chartQueryRequest,
-            HttpServletRequest request) {
+                                                       HttpServletRequest request) {
         if (chartQueryRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -177,7 +231,6 @@ public class ChartController {
     }
 
     // endregion
-
 
 
     /**
