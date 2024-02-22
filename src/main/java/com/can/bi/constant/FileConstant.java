@@ -1,5 +1,7 @@
 package com.can.bi.constant;
 
+import java.util.Set;
+
 /**
  * 文件常量
  *
@@ -13,4 +15,8 @@ public interface FileConstant {
      * todo 需替换配置
      */
     String COS_HOST = "https://can.icu";
+
+    Long ONE_MB = 1024 * 1024L;
+
+    Set<String> validFileSuffix = Set.of("png", "jpg", "svg", "xls", "xlsx", "doc", "docx", "pdf", "jpeg");
 }
