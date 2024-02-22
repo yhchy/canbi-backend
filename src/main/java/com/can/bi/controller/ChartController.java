@@ -1,15 +1,18 @@
 package com.can.bi.controller;
 
+import cn.hutool.core.io.FileUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.can.bi.annotation.AuthCheck;
 import com.can.bi.common.BaseResponse;
 import com.can.bi.common.DeleteRequest;
 import com.can.bi.common.ErrorCode;
 import com.can.bi.common.ResultUtils;
+import com.can.bi.constant.FileConstant;
 import com.can.bi.constant.UserConstant;
 import com.can.bi.exception.BusinessException;
 import com.can.bi.exception.ThrowUtils;
 import com.can.bi.manager.AiManager;
+import com.can.bi.manager.RedisLimiterManager;
 import com.can.bi.model.dto.chart.*;
 import com.can.bi.model.entity.Chart;
 import com.can.bi.model.entity.User;
@@ -47,6 +50,9 @@ public class ChartController {
     @Resource
     private AiManager aiManager;
 
+    @Resource
+    private RedisLimiterManager redisLimiterManager;
+
     public static final Long MODEL_ID = 1709156902984093697L;
 
     private final static Gson GSON = new Gson();
@@ -69,7 +75,18 @@ public class ChartController {
         // 校验
         ThrowUtils.throwIf(StringUtils.isBlank(goal), ErrorCode.PARAMS_ERROR, "目标为空");
         ThrowUtils.throwIf(StringUtils.isNotBlank(name) && name.length() > 100, ErrorCode.PARAMS_ERROR, "名称过长");
+        // 校验文件
+        long size = multipartFile.getSize();
+        String originalFilename = multipartFile.getOriginalFilename();
+        // 校验大小
+        ThrowUtils.throwIf(size > FileConstant.ONE_MB, ErrorCode.PARAMS_ERROR, "文件超过1M");
+        // 校验后缀
+        String suffix = FileUtil.getSuffix(originalFilename);
+        ThrowUtils.throwIf(!FileConstant.validFileSuffix.contains(suffix), ErrorCode.PARAMS_ERROR, "文件格式错误");
+
         User loginUser = userService.getLoginUser(request);
+        // 限流判断, 每个用户一个限流器
+        redisLimiterManager.doReteLimit("genChartByAi" + loginUser.getId());
         // 用户输入
         StringBuilder userInput = new StringBuilder();
         String userGoal = goal;
